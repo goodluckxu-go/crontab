@@ -215,7 +215,7 @@ func (c *Cron) nextTime() {
 	if c.isTrueNextTime() {
 		return
 	}
-	// 不满足为天和周不匹配，循环天，将时分秒置零
+	// 不满足为日月周不匹配，循环日，将时分秒置零
 	c.timesIdx[second] = 0
 	c.timesIdx[minute] = 0
 	c.timesIdx[hour] = 0
