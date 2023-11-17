@@ -15,8 +15,8 @@ const (
 	minute
 	hour
 	day
-	week
 	month
+	week
 
 	errorStr        = "规则错误"
 	errorNull       = "不存在可执行时间"
@@ -34,9 +34,9 @@ func (c cType) text() string {
 		second: "秒",
 		minute: "分",
 		hour:   "时",
-		day:    "天",
-		week:   "周",
+		day:    "日",
 		month:  "月",
+		week:   "周",
 	}
 	return m[c]
 }
@@ -73,16 +73,10 @@ type Cron struct {
 	beforeTimePtr *time.Time         // 上次执行时间
 	die           chan struct{}      // 关闭定时器
 	t             *time.Timer        // 定时器
-
-	seconds  []int  // 可执行秒
-	minutes  []int  // 可执行分
-	hours    []int  // 可执行时
-	days     []int  // 可执行天
-	weeks    []int  // 可执行周
-	months   []int  // 可执行月
-	year     int    // 执行年
-	timesLen [6]int // 可执行的数组长度
-	timesIdx [6]int // 执行时间索引
+	year          int                // 执行年
+	times         [6][]int           // 可执行时间
+	timesLen      [6]int             // 可执行的数组长度
+	timesIdx      [6]int             // 执行时间索引
 }
 
 // SetFun 设置任务方法
@@ -106,11 +100,11 @@ func (c *Cron) Run() {
 	c.init()
 	// 判断当前时间是否时已经执行
 	if c.beforeTimePtr != nil && c.beforeTimePtr.Year() == c.year &&
-		int(c.beforeTimePtr.Month()) == c.months[c.timesIdx[5]] &&
-		c.beforeTimePtr.Day() == c.days[c.timesIdx[3]] &&
-		c.beforeTimePtr.Hour() == c.hours[c.timesIdx[2]] &&
-		c.beforeTimePtr.Minute() == c.minutes[c.timesIdx[1]] &&
-		c.beforeTimePtr.Second() == c.seconds[c.timesIdx[0]] {
+		int(c.beforeTimePtr.Month()) == c.times[month][c.timesIdx[month]] &&
+		c.beforeTimePtr.Day() == c.times[day][c.timesIdx[day]] &&
+		c.beforeTimePtr.Hour() == c.times[hour][c.timesIdx[hour]] &&
+		c.beforeTimePtr.Minute() == c.times[minute][c.timesIdx[minute]] &&
+		c.beforeTimePtr.Second() == c.times[second][c.timesIdx[second]] {
 		// 已经执行则跳到下一个时间
 		c.nextTime()
 	}
@@ -146,19 +140,19 @@ func (c *Cron) run() {
 
 func (c *Cron) validMonthDay() {
 	isExists := false
-	for _, v := range c.months {
+	for _, v := range c.times[month] {
 		switch v {
 		case 1, 3, 5, 7, 8, 10, 12:
 			isExists = true
 		// 不验证，天可为31天
 		case 2:
 			// 2月最大可为29
-			if c.days[c.timesLen[3]-1] <= 29 {
+			if c.times[day][0] <= 29 {
 				isExists = true
 			}
 		default:
 			// 其他月份都为30天
-			if c.days[c.timesLen[3]-1] <= 30 {
+			if c.times[day][0] <= 30 {
 				isExists = true
 			}
 		}
@@ -172,74 +166,32 @@ func (c *Cron) init() {
 	c.die = make(chan struct{})
 	nowTime := time.Now()
 	c.year = nowTime.Year()
+	nowTimes := []int{nowTime.Second(), nowTime.Minute(), nowTime.Hour(), nowTime.Day(), int(nowTime.Month()),
+		nowTime.Year()}
+	// 秒到月可进制
 	isNext := false
-	// 秒
-	c.timesIdx[0] = inSliceByRun(nowTime.Second(), c.seconds)
-	if c.seconds[c.timesIdx[0]] < nowTime.Second() { // 秒进位
-		isNext = true
+	for i := second; i <= month; i++ {
+		c.timesIdx[i] = inSliceByRun(nowTimes[i], c.times[i])
+		if isNext {
+			c.timesIdx[i] = (c.timesIdx[i] + 1) % c.timesLen[i]
+			isNext = false
+		}
+		// 小于证明数字经过最大，高位进1
+		if c.times[i][c.timesIdx[i]] < nowTimes[i] {
+			isNext = true
+		}
+		// 不等于证明变化，变化后低位至0
+		if c.times[i][c.timesIdx[i]] != nowTimes[i] {
+			for j := second; j < i; j++ {
+				c.timesIdx[j] = 0
+			}
+		}
 	}
-	// 分
-	c.timesIdx[1] = inSliceByRun(nowTime.Minute(), c.minutes)
-	if isNext { // 如果秒进位则分加1
-		c.timesIdx[1] = (c.timesIdx[1] + 1) % c.timesLen[1]
-		isNext = false
-	}
-	if c.minutes[c.timesIdx[1]] < nowTime.Minute() { // 分进位
-		isNext = true
-	}
-	if c.minutes[c.timesIdx[1]] != nowTime.Minute() {
-		c.timesIdx[0] = 0
-	}
-	// 时
-	c.timesIdx[2] = inSliceByRun(nowTime.Hour(), c.hours)
-	if isNext { // 如果分进位则时加1
-		c.timesIdx[2] = (c.timesIdx[2] + 1) % c.timesLen[2]
-		isNext = false
-	}
-	if c.hours[c.timesIdx[2]] < nowTime.Hour() { // 时进位
-		isNext = true
-	}
-	if c.hours[c.timesIdx[2]] != nowTime.Hour() {
-		c.timesIdx[0] = 0
-		c.timesIdx[1] = 0
-	}
-	// 天
-	c.timesIdx[3] = inSliceByRun(nowTime.Day(), c.days)
-	if isNext { // 如果时进位则天加1
-		c.timesIdx[3] = (c.timesIdx[3] + 1) % c.timesLen[3]
-		isNext = false
-	}
-	if c.days[c.timesIdx[3]] < nowTime.Day() { // 天进位
-		isNext = true
-	}
-	if c.days[c.timesIdx[3]] != nowTime.Day() {
-		c.timesIdx[0] = 0
-		c.timesIdx[1] = 0
-		c.timesIdx[2] = 0
-	}
-	// 月
-	c.timesIdx[5] = inSliceByRun(int(nowTime.Month()), c.months)
-	if isNext { // 如果天进位则月加1
-		c.timesIdx[5] = (c.timesIdx[5] + 1) % c.timesLen[5]
-		isNext = false
-	}
-	if c.months[c.timesIdx[5]] < int(nowTime.Month()) { // 月进位
-		isNext = true
-	}
-	if c.months[c.timesIdx[5]] != int(nowTime.Month()) {
-		c.timesIdx[0] = 0
-		c.timesIdx[1] = 0
-		c.timesIdx[2] = 0
-		c.timesIdx[3] = 0
-	}
-	// 年
 	if isNext {
 		c.year++
-		c.timesIdx[0] = 0
-		c.timesIdx[1] = 0
-		c.timesIdx[2] = 0
-		c.timesIdx[3] = 0
-		c.timesIdx[5] = 0
+		for j := second; j < month; j++ {
+			c.timesIdx[j] = 0
+		}
 	}
 	if !c.isTrueNextTime() {
 		c.nextTime()
@@ -248,10 +200,7 @@ func (c *Cron) init() {
 
 func (c *Cron) nextTime() {
 	isNext := true
-	for i := 0; i < 6; i++ {
-		if i == int(week) {
-			continue
-		}
+	for i := second; i <= month; i++ {
 		if isNext {
 			c.timesIdx[i] = (c.timesIdx[i] + 1) % c.timesLen[i]
 		}
@@ -267,15 +216,12 @@ func (c *Cron) nextTime() {
 		return
 	}
 	// 不满足为天和周不匹配，循环天，将时分秒置零
-	c.timesIdx[0] = 0
-	c.timesIdx[1] = 0
-	c.timesIdx[2] = 0
+	c.timesIdx[second] = 0
+	c.timesIdx[minute] = 0
+	c.timesIdx[hour] = 0
 	for {
 		isNext = true
-		for i := 3; i < 6; i++ {
-			if i == int(week) {
-				continue
-			}
+		for i := day; i <= month; i++ {
 			if isNext {
 				c.timesIdx[i] = (c.timesIdx[i] + 1) % c.timesLen[i]
 			}
@@ -294,23 +240,22 @@ func (c *Cron) nextTime() {
 }
 
 func (c *Cron) getNextTime() time.Time {
-	nextTime := time.Date(c.year, time.Month(c.months[c.timesIdx[5]]), c.days[c.timesIdx[3]],
-		c.hours[c.timesIdx[2]], c.minutes[c.timesIdx[1]], c.seconds[c.timesIdx[0]], 0, time.Local)
+	nextTime := time.Date(c.year, time.Month(c.times[month][c.timesIdx[month]]), c.times[day][c.timesIdx[day]],
+		c.times[hour][c.timesIdx[hour]], c.times[minute][c.timesIdx[minute]], c.times[second][c.timesIdx[second]], 0, time.Local)
 	return nextTime
 }
 
 func (c *Cron) isTrueNextTime() bool {
-	nextTime := time.Date(c.year, time.Month(c.months[c.timesIdx[5]]), c.days[c.timesIdx[3]],
-		c.hours[c.timesIdx[2]], c.minutes[c.timesIdx[1]], c.seconds[c.timesIdx[0]], 0, time.Local)
+	nextTime := c.getNextTime()
 	// 两年内时间为正确时间
 	if maxYearLen != -1 && time.Now().Year()+1+maxYearLen <= nextTime.Year() {
 		panic(fmt.Errorf(errorNullYear, time.Now().Year()+1+maxYearLen))
 	}
-	if nextTime.Year() != c.year || nextTime.Day() != c.days[c.timesIdx[3]] {
+	if nextTime.Year() != c.year || nextTime.Day() != c.times[day][c.timesIdx[day]] {
 		return false
 	}
 	// 判断周是否在数组中
-	if !isInArray(int(nextTime.Weekday()), c.weeks) {
+	if !isInArray(int(nextTime.Weekday()), c.times[week]) {
 		return false
 	}
 	return true
@@ -320,39 +265,41 @@ func (c *Cron) parseRules() {
 	var err error
 	ruleList := strings.Split(c.rules, " ")
 	if len(ruleList) != 6 {
-		panic("cron格式为* * * * * *六位，分别代表秒 分 时 天 周 月")
+		panic("cron格式为* * * * * *六位，分别代表秒 分 时 日 月 周")
 	}
 	// 秒
 	seconds := make([]bool, 60)
-	if c.seconds, err = c.parseSingle(ruleList[0], second, seconds); err != nil {
+	if c.times[second], err = c.parseSingle(ruleList[second], second, seconds); err != nil {
 		panic(err)
 	}
 	// 分
 	minutes := make([]bool, 60)
-	if c.minutes, err = c.parseSingle(ruleList[1], minute, minutes); err != nil {
+	if c.times[minute], err = c.parseSingle(ruleList[minute], minute, minutes); err != nil {
 		panic(err)
 	}
 	// 时
 	hours := make([]bool, 24)
-	if c.hours, err = c.parseSingle(ruleList[2], hour, hours); err != nil {
+	if c.times[hour], err = c.parseSingle(ruleList[hour], hour, hours); err != nil {
 		panic(err)
 	}
-	// 天
+	// 日
 	days := make([]bool, 32)
-	if c.days, err = c.parseSingle(ruleList[3], day, days); err != nil {
-		panic(err)
-	}
-	// 周
-	weeks := make([]bool, 7)
-	if c.weeks, err = c.parseSingle(ruleList[4], week, weeks); err != nil {
+	if c.times[day], err = c.parseSingle(ruleList[day], day, days); err != nil {
 		panic(err)
 	}
 	// 月
 	months := make([]bool, 13)
-	if c.months, err = c.parseSingle(ruleList[5], month, months); err != nil {
+	if c.times[month], err = c.parseSingle(ruleList[month], month, months); err != nil {
 		panic(err)
 	}
-	c.timesLen = [6]int{len(c.seconds), len(c.minutes), len(c.hours), len(c.days), len(c.weeks), len(c.months)}
+	// 周
+	weeks := make([]bool, 7)
+	if c.times[week], err = c.parseSingle(ruleList[week], week, weeks); err != nil {
+		panic(err)
+	}
+	for k, v := range c.times {
+		c.timesLen[k] = len(v)
+	}
 }
 
 func (c *Cron) parseSingle(rule string, ct cType, runList []bool) (rs []int, err error) {
