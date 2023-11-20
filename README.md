@@ -37,5 +37,4 @@ crontab.NewCron方法注解
 crontab.Context注解
 ~~~go
 ctx.Stop() // 表示停止该定时任务
-ctx.BeginTime() // 表示该执行任务执行的开始时间
 ~~~

@@ -43,18 +43,12 @@ func (c cType) text() string {
 
 type Context struct {
 	context.Context
-	c         *Cron
-	beginTime time.Time
+	c *Cron
 }
 
 // Stop 结束定时器
 func (c *Context) Stop() {
 	c.c.die <- struct{}{}
-}
-
-// BeginTime 定时器开始时间
-func (c *Context) BeginTime() time.Time {
-	return c.beginTime
 }
 
 // NewCron 创建定时器
@@ -108,7 +102,7 @@ func (c *Cron) Run() {
 		// 已经执行则跳到下一个时间
 		c.nextTime()
 	}
-	c.t = time.AfterFunc(time.Duration(c.getNextTime().Unix()-time.Now().Unix())*time.Second, func() {
+	c.t = time.AfterFunc(time.Duration(c.getNextTime().UnixNano()-time.Now().UnixNano()), func() {
 		c.run()
 	})
 	defer c.t.Stop()
@@ -127,13 +121,12 @@ func (c *Cron) run() {
 			}
 		}()
 		c.task(&Context{
-			c:         c,
-			beginTime: c.getNextTime(),
+			c: c,
 		})
 	}()
 	// 下一次执行时间
 	c.nextTime()
-	c.t = time.AfterFunc(time.Duration(c.getNextTime().Unix()-time.Now().Unix())*time.Second, func() {
+	c.t = time.AfterFunc(time.Duration(c.getNextTime().UnixNano()-time.Now().UnixNano()), func() {
 		c.run()
 	})
 }
